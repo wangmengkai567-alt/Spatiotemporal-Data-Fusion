@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stfusion"
+version = "0.1.0"
+description = "将气象 VTK 与 GeoTIFF、WRF 湿度、风切变/湍流叠加到同一套网格并输出 VTK。"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "pyvista>=0.44",
+    "rasterio>=1.3",
+    "pyproj>=3.6",
+    "pyyaml>=6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+stfusion = "stfusion.__main__:main"
+
+# 可编辑安装用 PEP 660：元数据进虚拟环境，不在源码目录写 .egg-info
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+stfusion = ["web/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

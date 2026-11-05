@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>时空数据融合</title>
+    <link rel="stylesheet" href="./static/styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <p class="eyebrow">Spatiotemporal Data Fusion</p>
+        <h1>气象 VTK × 人口 × 湿度 × 湍流</h1>
+        <p class="lede">
+          选择文件并融合。输出 VTK 保留原有气象属性，叠加人口和 WRF 湿度，并把风切变 / 湍流切片采到同一套网格上。
+        </p>
+      </header>
+
+      <div id="health-banner" class="banner hidden" role="status"></div>
+
+      <div class="shell">
+        <div class="shell-left">
+          <article class="card drop-card" data-drop="vtk">
+            <div class="card-head">
+              <span class="step">1</span>
+              <div>
+                <h2>气象 VTK</h2>
+                <p>三维气象场，作为输出网格的骨架</p>
+              </div>
+            </div>
+            <label class="dropzone" id="vtk-drop">
+              <input id="vtk-input" type="file" accept=".vtk,.vti,.vtp,.vts,.vtu,.vtr" />
+              <strong>点击或拖入 VTK</strong>
+              <span>支持 .vtk / .vti 等</span>
+            </label>
+            <div class="file-meta" id="vtk-meta" hidden></div>
+          </article>
+
+          <article class="card drop-card" data-drop="tif">
+            <div class="card-head">
+              <span class="step">2</span>
+              <div>
+                <h2>人口 GeoTIFF</h2>
+                <p>二维人口栅格，写入 VTK 的新属性</p>
+              </div>
+            </div>
+            <label class="dropzone" id="pop-drop">
+              <input id="pop-input" type="file" accept=".tif,.tiff,.geotiff" />
+              <strong>点击或拖入 GeoTIFF</strong>
+              <span>将作为 population 波段</span>
+            </label>
+            <label class="field-label">属性名
+              <input id="pop-field" type="text" value="population" />
+            </label>
+            <div class="file-meta" id="pop-meta" hidden></div>
+          </article>
+
+          <article class="card drop-card" data-drop="wrf">
+            <div class="card-head">
+              <span class="step">3</span>
+              <div>
+                <h2>湿度</h2>
+                <p>按经纬度和高度采到气象网格，字段名与变量名相同</p>
+              </div>
+            </div>
+            <label class="dropzone" id="wrf-drop">
+              <input id="wrf-input" type="file" />
+              <strong>点击或拖入 wrfout</strong>
+              <span>可无扩展名，如 wrfout_d03_…</span>
+            </label>
+            <label class="field-label">属性名
+              <input id="wrf-var" type="text" value="QVAPOR" />
+            </label>
+            <div class="file-meta" id="wrf-meta" hidden></div>
+          </article>
+
+          <article class="card drop-card" data-drop="turb">
+            <div class="card-head">
+              <span class="step">4</span>
+              <div>
+                <h2>风切变 / 湍流</h2>
+                <p>4m 切片通常有多块（例如 7 个 VTK）。一次选齐后写入水平/垂直风切变和耗散率；没盖到的格点为 NaN。</p>
+              </div>
+            </div>
+            <div class="dropzone" id="turb-drop">
+              <strong>拖入多个 VTK，或拖入整个切片文件夹</strong>
+              <span>也可使用下面的按钮一次选多个文件</span>
+            </div>
+            <div class="turb-actions">
+              <button type="button" class="ghost" id="turb-pick-files">选择多个切片</button>
+              <button type="button" class="ghost" id="turb-pick-folder">选择文件夹</button>
+              <button type="button" class="ghost" id="turb-clear" hidden>清除</button>
+            </div>
+            <input id="turb-input" type="file" accept=".vtk,.vti,.vtp,.vts,.vtu,.vtr" multiple hidden />
+            <input id="turb-folder" type="file" webkitdirectory multiple hidden />
+            <ul id="turb-file-list" class="file-list" hidden></ul>
+            <div class="file-meta" id="turb-meta" hidden></div>
+          </article>
+
+          <article class="card params-card">
+            <div class="card-head">
+              <span class="step">5</span>
+              <div>
+                <h2>融合参数</h2>
+                <p>输出保持气象 VTK 的原网格。人口按 XY 取样后沿 Z 复制；QVAPOR 按三维插值；湍流按共点抽样。</p>
+              </div>
+            </div>
+            <div class="params">
+              <label>VTK 坐标系
+                <input id="vtk-crs" type="text" value="EPSG:32649" placeholder="EPSG:32649（UTM 49N）" />
+              </label>
+              <label>输出坐标系
+                <input id="target-crs" type="text" value="" placeholder="与气象 VTK 相同，不改网格" disabled />
+              </label>
+              <label>XY 分辨率
+                <select id="strategy">
+                  <option value="coarsest" selected>按分辨率低的（像元更大）</option>
+                  <option value="finest">按分辨率高的（像元更小）</option>
+                </select>
+              </label>
+              <label>栅格重采样
+                <select id="resampling">
+                  <option value="bilinear" selected>双线性</option>
+                  <option value="nearest">最近邻</option>
+                </select>
+              </label>
+            </div>
+            <div class="actions">
+              <button type="button" class="primary" id="fuse-btn">开始融合</button>
+            </div>
+          </article>
+        </div>
+
+        <aside class="card outputs-panel">
+          <div class="outputs-head">
+            <h2>融合结果</h2>
+            <p>已写出的 VTK 文件</p>
+          </div>
+          <div id="output-list" class="output-list">
+            <p class="output-empty">暂无融合结果</p>
+          </div>
+        </aside>
+      </div>
+    </div>
+    <script src="./static/app.js"></script>
+  </body>
+</html>
