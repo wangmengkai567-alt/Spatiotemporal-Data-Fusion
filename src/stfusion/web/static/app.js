@@ -1,6 +1,8 @@
 const vtkInput = document.getElementById("vtk-input");
 const popInput = document.getElementById("pop-input");
 const wrfInput = document.getElementById("wrf-input");
+const terrainInput = document.getElementById("terrain-input");
+const buildingInput = document.getElementById("building-input");
 const turbInput = document.getElementById("turb-input");
 const turbFolder = document.getElementById("turb-folder");
 const turbFileList = document.getElementById("turb-file-list");
@@ -10,6 +12,9 @@ const turbClear = document.getElementById("turb-clear");
 const fuseBtn = document.getElementById("fuse-btn");
 const healthBanner = document.getElementById("health-banner");
 const outputList = document.getElementById("output-list");
+const fusionStatus = document.getElementById("fusion-status");
+const outputsError = document.getElementById("outputs-error");
+const refreshOutputsBtn = document.getElementById("refresh-outputs");
 
 const VTK_EXTS = [".vtk", ".vti", ".vtp", ".vts", ".vtu", ".vtr"];
 const VTK_DTYPE_SIZES = {
@@ -26,6 +31,7 @@ const VTK_DTYPE_SIZES = {
   double: 8,
 };
 
+let outputItems = [];
 let turbFiles = [];
 let vtkInfoPromise = Promise.resolve(null);
 
@@ -437,6 +443,7 @@ async function onWrfChange() {
 }
 
 function renderOutputs(items) {
+  outputItems = items;
   if (!items.length) {
     outputList.innerHTML = '<p class="output-empty">暂无融合结果</p>';
     return;
@@ -447,7 +454,7 @@ function renderOutputs(items) {
       if (item.turbulence_tiles) extra.push(`${item.turbulence_tiles} 个湍流切片`);
       const tags = [".vtk", item.size_text, item.mtime]
         .concat(extra)
-        .concat((item.fields || []).slice(0, 8))
+        .concat(item.fields || [])
         .filter(Boolean)
         .map((tag) => `<li>${escapeHtml(tag)}</li>`)
         .join("");
@@ -470,15 +477,23 @@ function renderOutputs(items) {
     .join("");
 }
 
+function setFusionStatus(message, state) {
+  fusionStatus.textContent = message;
+  fusionStatus.className = `banner ${state}`;
+}
+
+function showOutputsError() {
+  outputsError.textContent = "无法刷新结果列表，请稍后点击“刷新结果”重试。";
+  outputsError.classList.remove("hidden");
+}
+
 async function loadOutputs() {
-  try {
-    const response = await fetch("./api/outputs");
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(errorDetail(payload, "无法读取融合结果"));
-    renderOutputs(payload.items || []);
-  } catch {
-    renderOutputs([]);
-  }
+  const response = await fetch("./api/outputs", { cache: "no-store" });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(errorDetail(payload, "无法读取融合结果"));
+  if (!Array.isArray(payload.items)) throw new Error("结果列表格式不正确");
+  renderOutputs(payload.items);
+  outputsError.classList.add("hidden");
 }
 
 async function deleteOutput(name) {
@@ -489,10 +504,24 @@ async function deleteOutput(name) {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(errorDetail(payload, "删除失败"));
-    await loadOutputs();
   } catch (error) {
     alert(error.message);
+    return;
   }
+  await loadOutputs().catch(showOutputsError);
+}
+
+function onArchiveChange(input, metaId) {
+  const meta = document.getElementById(metaId);
+  const file = input.files[0];
+  if (file && !file.name.toLowerCase().endsWith(".zip")) {
+    alert("请选择 ZIP 压缩文件");
+    input.value = "";
+  }
+  const selected = input.files[0];
+  setDropState(input, Boolean(selected));
+  meta.hidden = !selected;
+  meta.textContent = selected ? `${selected.name} · ${formatSize(selected.size)}` : "";
 }
 
 async function runFusion() {
@@ -501,8 +530,8 @@ async function runFusion() {
     return;
   }
   const hasTurb = turbFiles.length > 0;
-  if (!popInput.files[0] && !wrfInput.files[0] && !hasTurb) {
-    alert("请至少选择人口 GeoTIFF、湿度文件或风切变/湍流数据");
+  if (!popInput.files[0] && !wrfInput.files[0] && !hasTurb && !terrainInput.files[0] && !buildingInput.files[0]) {
+    alert("请至少选择人口、湿度、湍流、地形或建筑数据");
     return;
   }
   if (turbFiles.length === 1) {
@@ -516,25 +545,28 @@ async function runFusion() {
     fuseBtn.textContent = text;
   };
   setStatus(wrfInput.files[0] ? "正在融合（湿度插值较慢）…" : "正在融合…");
-
-  const body = new FormData();
-  body.append("vtk", vtkInput.files[0]);
-  if (popInput.files[0]) {
-    body.append("geotiff", popInput.files[0]);
-    body.append("geotiff_field", document.getElementById("pop-field").value || "population");
-  }
-  if (wrfInput.files[0]) {
-    const wrfVar = document.getElementById("wrf-var").value || "QVAPOR";
-    body.append("wrf", wrfInput.files[0]);
-    body.append("wrf_var", wrfVar);
-    body.append("wrf_field", wrfVar);
-  }
-  body.append("vtk_crs", document.getElementById("vtk-crs").value.trim() || "EPSG:32649");
-  body.append("target_crs", document.getElementById("target-crs").value);
-  body.append("strategy", document.getElementById("strategy").value);
-  body.append("resampling", document.getElementById("resampling").value);
+  setFusionStatus("正在上传并融合，请等待完成提示。", "pending");
+  let awaitingResult = false;
 
   try {
+    const body = new FormData();
+    body.append("vtk", vtkInput.files[0]);
+    if (popInput.files[0]) {
+      body.append("geotiff", popInput.files[0]);
+      body.append("geotiff_field", document.getElementById("pop-field").value || "population");
+    }
+    if (wrfInput.files[0]) {
+      const wrfVar = document.getElementById("wrf-var").value || "QVAPOR";
+      body.append("wrf", wrfInput.files[0]);
+      body.append("wrf_var", wrfVar);
+      body.append("wrf_field", wrfVar);
+    }
+    if (terrainInput.files[0]) body.append("terrain", terrainInput.files[0]);
+    if (buildingInput.files[0]) body.append("building", buildingInput.files[0]);
+    body.append("vtk_crs", document.getElementById("vtk-crs").value.trim() || "EPSG:32649");
+    body.append("target_crs", document.getElementById("target-crs").value);
+    body.append("resampling", document.getElementById("resampling").value);
+
     if (hasTurb) {
       const subset = await buildTurbulenceSubset(setStatus);
       if (subset) {
@@ -551,14 +583,31 @@ async function runFusion() {
         setStatus(`正在上传完整湍流切片（${formatSize(total)}，较慢）…`);
       }
     }
+    awaitingResult = true;
     const response = await fetch("./api/fuse", { method: "POST", body });
-    const payload = await response.json().catch(() => ({}));
+    if (response.status >= 500) throw new Error(`HTTP ${response.status}`);
     if (!response.ok) {
-      throw new Error(errorDetail(payload, "融合失败"));
+      awaitingResult = false;
+      const payload = await response.json();
+      throw new Error(errorDetail(payload, `请求失败（HTTP ${response.status}）`));
     }
-    await loadOutputs();
+    const payload = await response.json();
+    if (!payload.item || typeof payload.item.name !== "string" || !payload.item.name) {
+      throw new Error("服务器没有返回结果文件信息");
+    }
+    awaitingResult = false;
+    const item = payload.item;
+    renderOutputs([item, ...outputItems.filter((previous) => previous.name !== item.name)]);
+    const message = `融合成功，已生成：${item.name}。可在结果列表下载。`;
+    setFusionStatus(message, "success");
+    alert(message);
+    await loadOutputs().catch(showOutputsError);
   } catch (error) {
-    alert(error.message);
+    const message = awaitingResult
+      ? `未收到融合完成确认（${error.message}），后台可能仍在处理。请稍后点击“刷新结果”，避免重复提交。同名文件请核对修改时间。`
+      : `融合请求失败：${error.message}`;
+    setFusionStatus(message, awaitingResult ? "warning" : "error");
+    alert(message);
   } finally {
     fuseBtn.disabled = false;
     fuseBtn.textContent = "开始融合";
@@ -575,7 +624,7 @@ async function checkHealth() {
     healthBanner.textContent =
       "页面已可用，但融合依赖未安装（" +
       (data.missing || []).join("、") +
-      "）。请先执行 python -m pip install -e .";
+      "）。请先执行 uv sync";
   } catch {
     healthBanner.classList.remove("hidden");
     healthBanner.textContent = "无法连接融合服务。";
@@ -585,6 +634,10 @@ async function checkHealth() {
 wireDropzone("vtk-drop", vtkInput);
 wireDropzone("pop-drop", popInput);
 wireDropzone("wrf-drop", wrfInput);
+wireDropzone("terrain-drop", terrainInput);
+wireDropzone("building-drop", buildingInput);
+terrainInput.addEventListener("change", () => onArchiveChange(terrainInput, "terrain-meta"));
+buildingInput.addEventListener("change", () => onArchiveChange(buildingInput, "building-meta"));
 vtkInput.addEventListener("change", onVtkChange);
 popInput.addEventListener("change", onPopChange);
 wrfInput.addEventListener("change", onWrfChange);
@@ -628,5 +681,15 @@ outputList.addEventListener("click", (event) => {
   if (!button) return;
   deleteOutput(button.getAttribute("data-delete"));
 });
+refreshOutputsBtn.addEventListener("click", async () => {
+  refreshOutputsBtn.disabled = true;
+  try {
+    await loadOutputs();
+  } catch {
+    showOutputsError();
+  } finally {
+    refreshOutputsBtn.disabled = false;
+  }
+});
 checkHealth();
-loadOutputs();
+loadOutputs().catch(showOutputsError);

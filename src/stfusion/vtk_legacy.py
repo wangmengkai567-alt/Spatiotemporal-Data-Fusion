@@ -164,7 +164,10 @@ def _parse_named_arrays(handle, n_points: int | None, binary: bool) -> list[dict
             dtype = parts[2].lower() if len(parts) > 2 else "float"
             ncomp = 3
             offset = handle.tell()
-        elif key in {"FIELD", "CELL_DATA"}:
+        elif key == "FIELD":
+            fields.extend(_parse_field_block(handle, int(line.split()[-1]), binary))
+            continue
+        elif key == "CELL_DATA":
             break
         else:
             break

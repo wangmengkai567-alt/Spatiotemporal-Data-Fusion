@@ -73,6 +73,12 @@ body {
   color: #7a4b12;
 }
 
+.banner.success {
+  border-color: #b7d8c3;
+  background: #edf8f0;
+  color: #24643c;
+}
+
 .banner.error {
   border-color: #efc2c2;
   background: #fdecec;

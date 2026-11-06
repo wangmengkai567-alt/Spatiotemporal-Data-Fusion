@@ -10,9 +10,9 @@
     <div class="page">
       <header class="hero">
         <p class="eyebrow">Spatiotemporal Data Fusion</p>
-        <h1>气象 VTK × 人口 × 湿度 × 湍流</h1>
+        <h1>气象 VTK × 多源数据融合</h1>
         <p class="lede">
-          选择文件并融合。输出 VTK 保留原有气象属性，叠加人口和 WRF 湿度，并把风切变 / 湍流切片采到同一套网格上。
+          选择气象 VTK，可选人口、湿度、湍流、地形和建筑数据，融合后下载结果。
         </p>
       </header>
 
@@ -97,12 +97,44 @@
             <div class="file-meta" id="turb-meta" hidden></div>
           </article>
 
-          <article class="card params-card">
+          <article class="card drop-card" data-drop="terrain">
             <div class="card-head">
               <span class="step">5</span>
               <div>
+                <h2>地形高程</h2>
+                <p>可选，地形高程沿所有高度层保存</p>
+              </div>
+            </div>
+            <label class="dropzone" id="terrain-drop">
+              <input id="terrain-input" type="file" accept=".zip" />
+              <strong>点击或拖入地形 ZIP</strong>
+              <span>选择 terrain.zip</span>
+            </label>
+            <div class="file-meta" id="terrain-meta" hidden></div>
+          </article>
+
+          <article class="card drop-card" data-drop="building">
+            <div class="card-head">
+              <span class="step">6</span>
+              <div>
+                <h2>建筑高度</h2>
+                <p>可选，建筑自身高度沿所有高度层保存</p>
+              </div>
+            </div>
+            <label class="dropzone" id="building-drop">
+              <input id="building-input" type="file" accept=".zip" />
+              <strong>点击或拖入建筑 ZIP</strong>
+              <span>选择 building.zip</span>
+            </label>
+            <div class="file-meta" id="building-meta" hidden></div>
+          </article>
+
+          <article class="card params-card">
+            <div class="card-head">
+              <span class="step">7</span>
+              <div>
                 <h2>融合参数</h2>
-                <p>输出保持气象 VTK 的原网格。人口按 XY 取样后沿 Z 复制；QVAPOR 按三维插值；湍流按共点抽样。</p>
+                <p>输出保持气象 VTK 原网格。人口、地形和建筑高度沿 Z 复制，湿度和湍流沿用现有采样方式。</p>
               </div>
             </div>
             <div class="params">
@@ -113,12 +145,9 @@
                 <input id="target-crs" type="text" value="" placeholder="与气象 VTK 相同，不改网格" disabled />
               </label>
               <label>XY 分辨率
-                <select id="strategy">
-                  <option value="coarsest" selected>按分辨率低的（像元更大）</option>
-                  <option value="finest">按分辨率高的（像元更小）</option>
-                </select>
+                <input type="text" value="跟随气象 VTK" disabled />
               </label>
-              <label>栅格重采样
+              <label>人口栅格重采样
                 <select id="resampling">
                   <option value="bilinear" selected>双线性</option>
                   <option value="nearest">最近邻</option>
@@ -128,6 +157,7 @@
             <div class="actions">
               <button type="button" class="primary" id="fuse-btn">开始融合</button>
             </div>
+            <p id="fusion-status" class="banner hidden" role="status" aria-live="polite"></p>
           </article>
         </div>
 
@@ -135,7 +165,9 @@
           <div class="outputs-head">
             <h2>融合结果</h2>
             <p>已写出的 VTK 文件</p>
+            <button type="button" class="ghost" id="refresh-outputs">刷新结果</button>
           </div>
+          <p id="outputs-error" class="banner error hidden" role="alert"></p>
           <div id="output-list" class="output-list">
             <p class="output-empty">暂无融合结果</p>
           </div>

@@ -8,7 +8,7 @@ from pyproj import CRS, Transformer
 from rasterio.warp import transform_bounds
 
 from stfusion.crs import crs_equal, looks_projected
-from stfusion.models import Bounds3D, GeoTiffSource, Source, SourceSpec, TurbulenceSource, VtkSource, WrfSource
+from stfusion.models import BuildingSource, Bounds3D, GeoTiffSource, Source, SourceSpec, TerrainSource, TurbulenceSource, VtkSource, WrfSource
 
 
 class IoError(ValueError):
@@ -27,6 +27,12 @@ def load_source(spec: SourceSpec, target_crs: CRS, vtk_crs: CRS) -> Source:
         return load_vtk(spec, crs, target_crs)
     if spec.kind == "wrf":
         return load_wrf(spec)
+    if spec.kind in {"terrain", "building"}:
+        if spec.path.suffix.lower() != ".zip":
+            raise IoError(f"{spec.kind} 需要 ZIP 文件")
+        return TerrainSource(spec.name, spec.path) if spec.kind == "terrain" else BuildingSource(spec.name, spec.path)
+    if spec.kind != "geotiff":
+        raise IoError(f"不支持的数据来源：{spec.kind}")
     crs = CRS.from_user_input(spec.crs) if spec.crs else None
     return load_geotiff(spec, target_crs, crs_override=crs)
 
@@ -273,7 +279,7 @@ def _inspect_vtk(path: Path) -> dict:
             header_info["kind"] = "turbulence"
             header_info["type"] = "风切变/湍流 VTK"
             header_info["tiles"] = 1
-        # 1GB 切片只读头；PyVista 写出的小文件常用 SCALARS，头解析可能不完整
+        # 大文件只读字段描述和偏移，避免为预览再次加载全部数组
         if size > 80_000_000 or (fields and header_info["kind"] == "turbulence"):
             return header_info
     except VtkLegacyError:

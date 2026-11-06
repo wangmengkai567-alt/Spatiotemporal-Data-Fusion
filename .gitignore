@@ -25,3 +25,10 @@ data/*.geotiff
 start-web.cmd
 ecosystem.config.js
 anyangTpop50m202608261440.tiff
+docs/
+terrain/
+anyangMwind16m202602041542-0012000_fused/
+building/
+anyangMwind16m202602041542-0012000_fused.zip
+building.zip
+terrain.zip

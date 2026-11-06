@@ -191,9 +191,10 @@ def create_app() -> FastAPI:
         turbulence: list[UploadFile] = File(default=[]),
         turbulence_subset: list[UploadFile] = File(default=[]),
         turbulence_manifest: str = Form(""),
+        terrain: UploadFile | None = File(default=None),
+        building: UploadFile | None = File(default=None),
         vtk_crs: str = Form("EPSG:32649"),
         target_crs: str = Form("EPSG:32649"),
-        strategy: str = Form("coarsest"),
         resampling: str = Form("bilinear"),
     ) -> JSONResponse:
         _require_fusion()
@@ -211,10 +212,12 @@ def create_app() -> FastAPI:
             if turbulence:
                 raise HTTPException(status_code=400, detail="完整切片和切片子集不能同时上传")
         wrf_ok = wrf is not None and bool(wrf.filename)
-        if not geotiff and not wrf_ok and not turbulence and manifest is None:
+        terrain_ok = terrain is not None and bool(terrain.filename)
+        building_ok = building is not None and bool(building.filename)
+        if not geotiff and not wrf_ok and not turbulence and manifest is None and not terrain_ok and not building_ok:
             raise HTTPException(
                 status_code=400,
-                detail="请至少提供人口 GeoTIFF、wrfout 湿度或风切变/湍流数据",
+                detail="请至少提供人口、湿度、湍流、地形或建筑数据",
             )
 
         vtk_suffix = Path(vtk.filename or ".vtk").suffix.lower()
@@ -272,6 +275,15 @@ def create_app() -> FastAPI:
                 turb_tiles = await _save_turbulence_subset(manifest, turbulence_subset, turb_path)
                 turb_resampling = str(manifest.get("resampling") or "nearest")
 
+            surface_paths = {}
+            for kind, upload in (("terrain", terrain), ("building", building)):
+                if upload is not None and upload.filename:
+                    if Path(upload.filename).suffix.lower() != ".zip":
+                        raise HTTPException(status_code=400, detail=f"{kind} 需要 ZIP 文件")
+                    dest = tmp_path / kind / f"{kind}.zip"
+                    await _save_upload(upload, dest)
+                    surface_paths[kind] = dest
+
             from stfusion.config import config_from_cli
             from stfusion.io import inspect_info
             from stfusion.pipeline import fuse_to_vtk
@@ -283,13 +295,14 @@ def create_app() -> FastAPI:
                 output,
                 target_crs=target_crs.strip() or "EPSG:32649",
                 vtk_crs=vtk_crs.strip() or "EPSG:32649",
-                strategy=strategy,
                 resampling=resampling,
                 wrf=wrf_path,
                 wrf_field=(wrf_field or wrf_var or "QVAPOR").strip() or "QVAPOR",
                 wrf_var=(wrf_var or "QVAPOR").strip() or "QVAPOR",
                 turbulence=turb_path,
                 turbulence_resampling=turb_resampling,
+                terrain=surface_paths.get("terrain"),
+                building=surface_paths.get("building"),
             )
             result = await run_in_threadpool(fuse_to_vtk, cfg)
             meta = await run_in_threadpool(inspect_info, result)
@@ -355,7 +368,7 @@ def _missing_message(missing: list[str] | None = None) -> str:
     return (
         "融合依赖尚未安装："
         + "、".join(names)
-        + "。请在项目目录执行 python -m pip install -e ."
+        + "。请在项目目录执行 uv sync"
     )
 
 

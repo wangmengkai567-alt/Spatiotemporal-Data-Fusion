@@ -159,13 +159,27 @@ class TurbulenceSource:
     kind: Literal["turbulence"] = "turbulence"
 
 
-Source = VtkSource | GeoTiffSource | WrfSource | TurbulenceSource
+@dataclass
+class TerrainSource:
+    name: str
+    path: Path
+    kind: Literal["terrain"] = "terrain"
+
+
+@dataclass
+class BuildingSource:
+    name: str
+    path: Path
+    kind: Literal["building"] = "building"
+
+
+Source = VtkSource | GeoTiffSource | WrfSource | TurbulenceSource | TerrainSource | BuildingSource
 
 
 @dataclass
 class SourceSpec:
     name: str
-    kind: Literal["vtk", "geotiff", "wrf", "turbulence"]
+    kind: Literal["vtk", "geotiff", "wrf", "turbulence", "terrain", "building"]
     path: Path
     field: str | None = None
     band: int = 1
@@ -179,7 +193,6 @@ class SourceSpec:
 class FusionConfig:
     target_crs: str
     vtk_crs: str
-    strategy: Literal["coarsest", "finest"]
     extent: Literal["intersection"]
     sources: list[SourceSpec]
     output: Path

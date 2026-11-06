@@ -39,10 +39,7 @@ def load_config(path: Path) -> FusionConfig:
 
     target_crs = str(crs.get("target") or "EPSG:32649")
     vtk_crs = str(crs.get("vtk") or "EPSG:32649")
-    strategy = str(grid.get("strategy") or "coarsest")
     extent = str(grid.get("extent") or "intersection")
-    if strategy not in {"coarsest", "finest"}:
-        raise ConfigError("grid.strategy 只能是 coarsest（像元更大）或 finest（像元更小）")
     if extent != "intersection":
         raise ConfigError("目前仅支持 grid.extent: intersection")
 
@@ -58,7 +55,6 @@ def load_config(path: Path) -> FusionConfig:
     return FusionConfig(
         target_crs=target_crs,
         vtk_crs=vtk_crs,
-        strategy=strategy,  # type: ignore[arg-type]
         extent="intersection",
         sources=sources,
         output=_as_path(str(out_path), base),
@@ -75,8 +71,8 @@ def _parse_source(item: Any, base: Path) -> SourceSpec:
     if not name or not kind or not path:
         raise ConfigError("source 需要 name、type、path")
     kind = str(kind).lower()
-    if kind not in {"vtk", "geotiff", "wrf", "turbulence"}:
-        raise ConfigError(f"不支持的 source type: {kind}（vtk | geotiff | wrf | turbulence）")
+    if kind not in {"vtk", "geotiff", "wrf", "turbulence", "terrain", "building"}:
+        raise ConfigError(f"不支持的 source type: {kind}（vtk | geotiff | wrf | turbulence | terrain | building）")
 
     resampling = str(item.get("resampling") or ("nearest" if kind == "turbulence" else "bilinear")).lower()
     if kind == "geotiff" and resampling not in {"bilinear", "nearest"}:
@@ -116,7 +112,6 @@ def config_from_cli(
     output: Path,
     target_crs: str,
     vtk_crs: str,
-    strategy: str = "coarsest",
     resampling: str = "bilinear",
     wrf: Path | None = None,
     wrf_field: str | None = None,
@@ -124,9 +119,9 @@ def config_from_cli(
     turbulence: Path | None = None,
     turbulence_fields: list[str] | None = None,
     turbulence_resampling: str = "nearest",
+    terrain: Path | None = None,
+    building: Path | None = None,
 ) -> FusionConfig:
-    if strategy not in {"coarsest", "finest"}:
-        raise ConfigError("strategy 只能是 coarsest 或 finest")
     sources = [
         SourceSpec(name="meteorology", kind="vtk", path=vtk.resolve()),
     ]
@@ -165,10 +160,12 @@ def config_from_cli(
                 resampling=turb_resampling,
             )
         )
+    for kind, path in (("terrain", terrain), ("building", building)):
+        if path is not None:
+            sources.append(SourceSpec(name=kind, kind=kind, path=path.resolve()))
     return FusionConfig(
         target_crs=target_crs,
         vtk_crs=vtk_crs,
-        strategy=strategy,  # type: ignore[arg-type]
         extent="intersection",
         sources=sources,
         output=output.resolve(),
